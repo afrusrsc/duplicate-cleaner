@@ -1,0 +1,15 @@
+# 适用于 go 开发的 .gitignore
+
+# IDE配置文件
+.vscode/
+.idea/
+
+# 可执行文件
+*.exe
+*.a
+*.dll
+*.so
+*.dylib
+
+# 日志
+*.log
