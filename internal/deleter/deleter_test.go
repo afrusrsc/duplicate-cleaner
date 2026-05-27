@@ -123,18 +123,18 @@ func TestDeleteMultiple_MixedResults(t *testing.T) {
 	}
 }
 
-func TestEnsureTrashDir(t *testing.T) {
+func TestEnsureTrashDirLinux(t *testing.T) {
 	// 使用临时目录作为 HOME
 	tmpDir := t.TempDir()
 	t.Setenv("HOME", tmpDir)
 
-	err := ensureTrashDir()
+	base, err := ensureTrashDirLinux()
 	if err != nil {
-		t.Fatalf("ensureTrashDir 失败: %v", err)
+		t.Fatalf("ensureTrashDirLinux 失败: %v", err)
 	}
 
-	trashFiles := filepath.Join(tmpDir, ".local", "share", "Trash", "files")
-	trashInfo := filepath.Join(tmpDir, ".local", "share", "Trash", "info")
+	trashFiles := filepath.Join(base, "files")
+	trashInfo := filepath.Join(base, "info")
 
 	if _, err := os.Stat(trashFiles); os.IsNotExist(err) {
 		t.Error("回收站 files 目录应存在")

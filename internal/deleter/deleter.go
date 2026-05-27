@@ -15,7 +15,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -47,8 +49,22 @@ func DeleteMultiple(paths []string, directDelete bool) []DeleteResult {
 	return results
 }
 
-// trashBasePath 返回 FreeDesktop.org 标准的回收站根目录。
-func trashBasePath() (string, error) {
+// moveToTrash 将文件移到回收站（跨平台）。
+func moveToTrash(path string) error {
+	switch runtime.GOOS {
+	case "darwin":
+		return moveToTrashDarwin(path)
+	case "windows":
+		return moveToTrashWindows(path)
+	default: // linux 及其他 unix
+		return moveToTrashLinux(path)
+	}
+}
+
+// --- Linux: FreeDesktop.org Trash 规范 ---
+
+// trashBasePathLinux 返回 FreeDesktop.org 标准的回收站根目录。
+func trashBasePathLinux() (string, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", fmt.Errorf("获取 HOME 目录失败: %w", err)
@@ -56,22 +72,116 @@ func trashBasePath() (string, error) {
 	return filepath.Join(home, ".local", "share", "Trash"), nil
 }
 
-// ensureTrashDir 确保回收站目录存在。
-func ensureTrashDir() error {
-	base, err := trashBasePath()
+// ensureTrashDirLinux 确保回收站目录存在。
+func ensureTrashDirLinux() (string, error) {
+	base, err := trashBasePathLinux()
 	if err != nil {
-		return err
+		return "", err
 	}
 	filesDir := filepath.Join(base, "files")
 	infoDir := filepath.Join(base, "info")
 	if err := os.MkdirAll(filesDir, 0755); err != nil {
-		return fmt.Errorf("创建回收站 files 目录失败: %w", err)
+		return "", fmt.Errorf("创建回收站 files 目录失败: %w", err)
 	}
 	if err := os.MkdirAll(infoDir, 0755); err != nil {
-		return fmt.Errorf("创建回收站 info 目录失败: %w", err)
+		return "", fmt.Errorf("创建回收站 info 目录失败: %w", err)
 	}
+	return base, nil
+}
+
+func moveToTrashLinux(path string) error {
+	base, err := ensureTrashDirLinux()
+	if err != nil {
+		return err
+	}
+
+	fileName := filepath.Base(path)
+	trashedPath := filepath.Join(base, "files", fileName)
+	infoPath := filepath.Join(base, "info", fileName+".trashinfo")
+
+	// 如果回收站中已存在同名文件，添加时间戳后缀
+	if _, err := os.Stat(trashedPath); err == nil {
+		suffix := fmt.Sprintf("_%d", time.Now().UnixNano())
+		trashedPath = filepath.Join(base, "files", fileName+suffix)
+		infoPath = filepath.Join(base, "info", fileName+suffix+".trashinfo")
+	}
+
+	// 写入 .trashinfo 文件
+	now := time.Now().Format(time.RFC3339)
+	infoContent := fmt.Sprintf("[Trash Info]\nPath=%s\nDeletionDate=%s\n", path, now)
+	if err := os.WriteFile(infoPath, []byte(infoContent), 0644); err != nil {
+		return fmt.Errorf("写入回收站信息文件失败: %w", err)
+	}
+
+	// 移动文件到回收站（支持跨设备）
+	if err := moveFile(path, trashedPath); err != nil {
+		os.Remove(infoPath)
+		return fmt.Errorf("移动文件到回收站失败: %w", err)
+	}
+
 	return nil
 }
+
+// --- macOS: 移到 ~/.Trash ---
+
+func moveToTrashDarwin(path string) error {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("获取 HOME 目录失败: %w", err)
+	}
+
+	trashDir := filepath.Join(home, ".Trash")
+	if err := os.MkdirAll(trashDir, 0700); err != nil {
+		return fmt.Errorf("创建回收站目录失败: %w", err)
+	}
+
+	fileName := filepath.Base(path)
+	trashedPath := filepath.Join(trashDir, fileName)
+
+	// 如果回收站中已存在同名文件，添加时间戳后缀
+	if _, err := os.Stat(trashedPath); err == nil {
+		suffix := time.Now().Format("_2006-01-02-15.04.05")
+		trashedPath = filepath.Join(trashDir, fileName+suffix)
+	}
+
+	if err := moveFile(path, trashedPath); err != nil {
+		return fmt.Errorf("移动文件到回收站失败: %w", err)
+	}
+
+	return nil
+}
+
+// --- Windows: 调用 PowerShell 移到回收站 ---
+
+func moveToTrashWindows(path string) error {
+	// 使用 .NET 的 Microsoft.VisualBasic.FileIO.FileSystem 支持移到回收站
+	script := fmt.Sprintf(
+		`Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('%s', 'OnlyErrorDialogs', 'SendToRecycleBin')`,
+		path,
+	)
+
+	// 先检查是文件还是目录
+	info, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("访问文件失败: %w", err)
+	}
+
+	if info.IsDir() {
+		script = fmt.Sprintf(
+			`Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('%s', 'OnlyErrorDialogs', 'SendToRecycleBin')`,
+			path,
+		)
+	}
+
+	cmd := exec.Command("powershell", "-NoProfile", "-Command", script)
+	if output, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("移动到回收站失败: %w (%s)", err, string(output))
+	}
+
+	return nil
+}
+
+// --- 通用工具函数 ---
 
 // copyFile 复制文件内容到目标路径。
 func copyFile(src, dst string) error {
@@ -111,43 +221,4 @@ func moveFile(src, dst string) error {
 		return fmt.Errorf("复制文件失败: %w", err)
 	}
 	return os.Remove(src)
-}
-
-// moveToTrash 将文件移到回收站（遵循 FreeDesktop.org Trash 规范）。
-func moveToTrash(path string) error {
-	if err := ensureTrashDir(); err != nil {
-		return err
-	}
-
-	base, err := trashBasePath()
-	if err != nil {
-		return err
-	}
-
-	fileName := filepath.Base(path)
-	trashedPath := filepath.Join(base, "files", fileName)
-	infoPath := filepath.Join(base, "info", fileName+".trashinfo")
-
-	// 如果回收站中已存在同名文件，添加时间戳后缀
-	if _, err := os.Stat(trashedPath); err == nil {
-		suffix := fmt.Sprintf("_%d", time.Now().UnixNano())
-		trashedPath = filepath.Join(base, "files", fileName+suffix)
-		infoPath = filepath.Join(base, "info", fileName+suffix+".trashinfo")
-	}
-
-	// 写入 .trashinfo 文件
-	now := time.Now().Format(time.RFC3339)
-	infoContent := fmt.Sprintf("[Trash Info]\nPath=%s\nDeletionDate=%s\n", path, now)
-	if err := os.WriteFile(infoPath, []byte(infoContent), 0644); err != nil {
-		return fmt.Errorf("写入回收站信息文件失败: %w", err)
-	}
-
-	// 移动文件到回收站（支持跨设备）
-	if err := moveFile(path, trashedPath); err != nil {
-		// 移动失败时清理 info 文件
-		os.Remove(infoPath)
-		return fmt.Errorf("移动文件到回收站失败: %w", err)
-	}
-
-	return nil
 }

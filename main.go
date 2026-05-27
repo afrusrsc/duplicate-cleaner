@@ -17,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"runtime"
 	"time"
 
 	"duplicate-cleaner/internal/hasher"
@@ -104,11 +105,25 @@ func main() {
 				}
 				time.Sleep(200 * time.Millisecond)
 			}
-			exec.Command("xdg-open", url).Start()
+			openBrowser(url)
 		}()
 
 		log.Fatal(http.ListenAndServe(addr, router))
 	}
+}
+
+// openBrowser 跨平台打开浏览器。
+func openBrowser(url string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", url)
+	case "windows":
+		cmd = exec.Command("cmd", "/c", "start", url)
+	default: // linux 及其他 unix
+		cmd = exec.Command("xdg-open", url)
+	}
+	cmd.Start()
 }
 
 // deleteModeStr 返回删除模式的描述文本。

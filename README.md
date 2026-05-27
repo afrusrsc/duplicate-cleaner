@@ -1,6 +1,6 @@
 # 🔍 文件去重工具 (duplicate-cleaner)
 
-查找并删除重复文件的命令行工具，支持 Web 界面和 TUI 终端界面。
+查找并删除重复文件的命令行工具，支持 Web 界面和 TUI 终端界面。跨平台支持 Linux、macOS 和 Windows。
 
 ## ✨ 功能特性
 
@@ -28,7 +28,10 @@ go install github.com/a-h/templ/cmd/templ@latest
 templ generate ./...
 
 # 编译
+# Linux / macOS
 go build -o duplicate-cleaner .
+# Windows
+go build -o duplicate-cleaner.exe .
 ```
 
 ## 🚀 使用方法
@@ -36,7 +39,7 @@ go build -o duplicate-cleaner .
 ### Web 模式（默认）
 
 ```bash
-# 启动 Web 界面，自动打开浏览器
+# 启动 Web 界面，自动打开浏览器（Linux/macOS/Windows 均支持）
 duplicate-cleaner
 
 # 指定端口
