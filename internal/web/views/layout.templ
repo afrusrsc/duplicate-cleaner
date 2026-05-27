@@ -1,0 +1,32 @@
+package views
+
+templ Layout(title string) {
+	<!DOCTYPE html>
+	<html lang="zh-CN">
+		<head>
+			<meta charset="UTF-8"/>
+			<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+			<title>{ title }</title>
+			<script src="https://cdn.tailwindcss.com"></script>
+			<script src="https://unpkg.com/htmx.org@2.0.4"></script>
+			<script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+			<style>
+				/* 滚动条美化 */
+				::-webkit-scrollbar { width: 6px; }
+				::-webkit-scrollbar-track { background: #f1f5f9; }
+				::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
+			</style>
+		</head>
+		<body class="bg-gray-50 min-h-screen">
+			<nav class="bg-white shadow-sm border-b border-gray-200">
+				<div class="max-w-6xl mx-auto px-4 py-3 flex items-center gap-2">
+					<span class="text-2xl">🔍</span>
+					<h1 class="text-xl font-bold text-purple-700">文件去重工具</h1>
+				</div>
+			</nav>
+			<main class="max-w-6xl mx-auto px-4 py-6">
+				{ children... }
+			</main>
+		</body>
+	</html>
+}

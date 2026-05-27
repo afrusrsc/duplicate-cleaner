@@ -1,0 +1,315 @@
+package views
+
+templ Index() {
+	@Layout("文件去重工具") {
+		<div x-data="scanForm()" class="space-y-6">
+			<!-- 目录浏览器 -->
+			<div class="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+				<div class="flex items-center justify-between mb-4">
+					<h2 class="text-lg font-semibold text-gray-800">📂 选择扫描目录</h2>
+					<button
+						@click="showBrowser = !showBrowser"
+						class="text-sm text-purple-600 hover:text-purple-800"
+					>
+						<span x-show="!showBrowser">展开浏览器</span>
+						<span x-show="showBrowser">收起浏览器</span>
+					</button>
+				</div>
+
+				<!-- 已选目录列表 -->
+				<div class="space-y-2 mb-4">
+					<template x-for="(dir, index) in directories" :key="index">
+						<div class="flex items-center gap-2 bg-purple-50 rounded-md px-3 py-2 border border-purple-200">
+							<span class="text-sm text-purple-800 flex-1 truncate" x-text="dir"></span>
+							<button
+								@click="directories.splice(index, 1)"
+								class="text-purple-400 hover:text-red-600 text-sm"
+							>✕</button>
+						</div>
+					</template>
+					<p x-show="directories.length === 0" class="text-sm text-gray-400">尚未选择任何目录，可通过下方输入框或浏览器添加</p>
+				</div>
+
+				<!-- 手动输入路径 -->
+				<div class="flex gap-2 mb-4">
+					<input
+						type="text"
+						x-model="manualPath"
+						@keydown.enter="addManualPath()"
+						placeholder="手动输入目录路径，回车添加"
+						class="flex-1 rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-purple-500 focus:ring-1 focus:ring-purple-500"
+					/>
+					<button
+						@click="addManualPath()"
+						:disabled="!manualPath.trim()"
+						class="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 disabled:opacity-50 disabled:cursor-not-allowed border border-gray-300"
+					>
+						添加
+					</button>
+				</div>
+
+				<!-- 目录浏览器面板 -->
+				<div x-show="showBrowser" x-cloak class="border border-gray-200 rounded-lg overflow-hidden">
+					<!-- 面包屑导航 -->
+					<div class="bg-gray-50 px-4 py-2 border-b border-gray-200 flex items-center gap-1 text-sm flex-wrap">
+						<template x-for="(part, idx) in breadcrumbs" :key="idx">
+							<span class="flex items-center gap-1">
+								<span x-show="idx > 0" class="text-gray-400">/</span>
+								<button
+									@click="navigateTo(part.path)"
+									class="text-purple-600 hover:text-purple-800 hover:underline"
+									x-text="part.name || '/'"
+								></button>
+							</span>
+						</template>
+					</div>
+
+					<!-- 目录列表 -->
+					<div class="max-h-64 overflow-y-auto">
+						<!-- 返回上级 -->
+						<button
+							x-show="currentPath !== '/'"
+							@click="navigateUp()"
+							class="w-full text-left px-4 py-2 hover:bg-gray-50 text-sm text-gray-600 flex items-center gap-2 border-b border-gray-100"
+						>
+							<span>📁</span>
+							<span>..</span>
+						</button>
+						<template x-for="dir in subDirs" :key="dir.name">
+							<button
+								@click="navigateTo(currentPath === '/' ? '/' + dir.name : currentPath + '/' + dir.name)"
+								class="w-full text-left px-4 py-2 hover:bg-purple-50 text-sm text-gray-700 flex items-center gap-2 border-b border-gray-50"
+							>
+								<span x-text="dir.isSymlink ? '🔗' : '📁'"></span>
+								<span x-text="dir.name"></span>
+							</button>
+						</template>
+						<p x-show="subDirs.length === 0 && !browseError" class="px-4 py-3 text-sm text-gray-400">此目录下没有子目录</p>
+						<p x-show="browseError" class="px-4 py-3 text-sm text-red-500" x-text="browseError"></p>
+					</div>
+
+					<!-- 添加当前目录按钮 -->
+					<div class="bg-gray-50 px-4 py-3 border-t border-gray-200 flex items-center justify-between">
+						<span class="text-xs text-gray-500 truncate" x-text="currentPath"></span>
+						<button
+							@click="addCurrentDir()"
+							class="px-3 py-1.5 text-sm bg-purple-600 text-white rounded-md hover:bg-purple-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
+							:disabled="directories.includes(currentPath)"
+						>
+							<span x-show="!directories.includes(currentPath)">✚ 添加此目录</span>
+							<span x-show="directories.includes(currentPath)">已添加</span>
+						</button>
+					</div>
+				</div>
+			</div>
+
+			<!-- 算法选择 -->
+			<div class="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+				<h2 class="text-lg font-semibold text-gray-800 mb-4">⚙️ 哈希算法</h2>
+				<div class="flex flex-wrap gap-3">
+					<template x-for="algo in ['md5', 'sha1', 'sha256', 'sha512']" :key="algo">
+						<label class="flex items-center gap-2 cursor-pointer">
+							<input
+								type="radio"
+								name="algorithm"
+								x-model="algorithm"
+								:value="algo"
+								class="text-purple-600 focus:ring-purple-500"
+							/>
+							<span class="text-sm text-gray-700" x-text="algo.toUpperCase()"></span>
+						</label>
+					</template>
+				</div>
+			</div>
+
+			<!-- 删除模式 -->
+			<div class="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+				<h2 class="text-lg font-semibold text-gray-800 mb-4">🗑️ 删除模式</h2>
+				<label class="flex items-center gap-2 cursor-pointer">
+					<input
+						type="checkbox"
+						x-model="directDelete"
+						class="rounded text-red-600 focus:ring-red-500"
+					/>
+					<span class="text-sm text-gray-700">直接删除（不放入回收站）</span>
+				</label>
+				<p class="text-xs text-gray-500 mt-1" x-show="!directDelete">默认将文件移到回收站，可恢复</p>
+				<p class="text-xs text-red-500 mt-1" x-show="directDelete">⚠️ 文件删除后无法恢复</p>
+			</div>
+
+			<!-- 开始按钮 -->
+			<button
+				@click="startScan()"
+				:disabled="scanning || directories.length === 0"
+				class="w-full py-3 px-4 rounded-lg font-medium text-white transition-colors"
+				:class="scanning || directories.length === 0 ? 'bg-gray-400 cursor-not-allowed' : 'bg-purple-600 hover:bg-purple-700'"
+			>
+				<span x-show="!scanning">🚀 开始扫描</span>
+				<span x-show="scanning">⏳ 扫描中...</span>
+			</button>
+
+			<!-- 进度显示 -->
+			<div x-show="scanning" class="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
+				<div class="flex items-center justify-between mb-2">
+					<span class="text-sm text-gray-600">正在计算文件哈希值...</span>
+					<span class="text-sm text-gray-600" x-text="progressText"></span>
+				</div>
+				<div class="w-full bg-gray-200 rounded-full h-2.5">
+					<div
+						class="bg-purple-600 h-2.5 rounded-full transition-all duration-300"
+						:style="'width: ' + progressPercent + '%'"
+					></div>
+				</div>
+			</div>
+
+			<!-- 错误提示 -->
+			<div x-show="error" class="bg-red-50 border border-red-200 rounded-lg p-4">
+				<p class="text-red-700 text-sm" x-text="error"></p>
+			</div>
+		</div>
+
+		<script>
+			function scanForm() {
+				return {
+					directories: [],
+					algorithm: 'md5',
+					directDelete: false,
+					scanning: false,
+					progressText: '',
+					progressPercent: 0,
+					error: '',
+					progressTimer: null,
+					showBrowser: true,
+					currentPath: '/',
+					subDirs: [],
+					browseError: '',
+					breadcrumbs: [{name: '/', path: '/'}],
+					manualPath: '',
+
+					addManualPath() {
+						const path = this.manualPath.trim();
+						if (path && !this.directories.includes(path)) {
+							this.directories.push(path);
+						}
+						this.manualPath = '';
+					},
+
+					init() {
+						this.browse('/');
+					},
+
+					async browse(path) {
+						try {
+							const resp = await fetch('/api/browse?path=' + encodeURIComponent(path));
+							const data = await resp.json();
+							// 即使出错也更新路径，确保 ".." 按钮可用
+							this.currentPath = data.path || path;
+							this.updateBreadcrumbs(this.currentPath);
+							if (data.error) {
+								this.browseError = data.error;
+								this.subDirs = [];
+								return;
+							}
+							this.subDirs = data.dirs || [];
+							this.browseError = '';
+						} catch (e) {
+							this.currentPath = path;
+							this.updateBreadcrumbs(path);
+							this.browseError = '无法加载目录列表';
+							this.subDirs = [];
+						}
+					},
+
+					updateBreadcrumbs(path) {
+						const parts = path.split('/').filter(p => p);
+						this.breadcrumbs = [{name: '/', path: '/'}];
+						let accumulated = '';
+						for (const part of parts) {
+							accumulated += '/' + part;
+							this.breadcrumbs.push({name: part, path: accumulated});
+						}
+					},
+
+					navigateTo(path) {
+						this.browse(path);
+					},
+
+					navigateUp() {
+						if (this.currentPath === '/') return;
+						const parts = this.currentPath.split('/').filter(p => p);
+						parts.pop();
+						const parent = parts.length === 0 ? '/' : '/' + parts.join('/');
+						this.browse(parent);
+					},
+
+					addCurrentDir() {
+						if (!this.directories.includes(this.currentPath)) {
+							this.directories.push(this.currentPath);
+						}
+					},
+
+					async startScan() {
+						if (this.directories.length === 0) return;
+
+						this.scanning = true;
+						this.error = '';
+						this.progressPercent = 0;
+						this.progressText = '准备中...';
+
+						try {
+							const resp = await fetch('/api/scan', {
+								method: 'POST',
+								headers: {'Content-Type': 'application/json'},
+								body: JSON.stringify({
+									directories: this.directories,
+									algorithm: this.algorithm,
+									directDelete: this.directDelete,
+								}),
+							});
+
+							if (!resp.ok) {
+								const data = await resp.json();
+								throw new Error(data.error || '扫描失败');
+							}
+
+							this.pollProgress();
+						} catch (e) {
+							this.error = e.message;
+							this.scanning = false;
+						}
+					},
+
+					async pollProgress() {
+						const poll = async () => {
+							try {
+								const resp = await fetch('/api/progress');
+								const data = await resp.json();
+
+								if (data.total > 0) {
+									this.progressPercent = Math.round((data.current / data.total) * 100);
+									this.progressText = data.current + ' / ' + data.total + ' 个文件';
+								}
+
+								if (data.done) {
+									clearInterval(this.progressTimer);
+									if (data.error) {
+										this.error = data.error;
+										this.scanning = false;
+									} else {
+										window.location.href = '/results';
+									}
+									return;
+								}
+							} catch (e) {
+								// 忽略轮询错误
+							}
+						};
+
+						this.progressTimer = setInterval(poll, 500);
+						poll();
+					},
+				};
+			}
+		</script>
+	}
+}
