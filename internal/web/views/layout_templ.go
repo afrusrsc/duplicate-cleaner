@@ -50,7 +50,7 @@ func Layout(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</main></body></html>")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 3, "</main><script>\n\t\t\t\t// 清除内部导航标记（只有新页面加载时才会执行到这里）\n\t\t\t\tsessionStorage.removeItem('internal_nav');\n\n\t\t\t\t// 所有内部链接点击时设置标记，防止触发 shutdown\n\t\t\t\tdocument.addEventListener('click', function(e) {\n\t\t\t\t\tvar a = e.target.closest('a[href]');\n\t\t\t\t\tif (a) {\n\t\t\t\t\t\ttry {\n\t\t\t\t\t\t\tif (new URL(a.href, location.href).origin === location.origin) {\n\t\t\t\t\t\t\t\tsessionStorage.setItem('internal_nav', '1');\n\t\t\t\t\t\t\t}\n\t\t\t\t\t\t} catch (_) {}\n\t\t\t\t\t}\n\t\t\t\t});\n\n\t\t\t\twindow.addEventListener('beforeunload', () => {\n\t\t\t\t\tif (sessionStorage.getItem('internal_nav') !== '1') {\n\t\t\t\t\t\tnavigator.sendBeacon('/api/shutdown');\n\t\t\t\t\t}\n\t\t\t\t});\n\t\t\t</script></body></html>")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

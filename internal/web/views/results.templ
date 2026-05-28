@@ -241,6 +241,7 @@ templ Results(groups []model.DuplicateGroup, directDelete bool) {
 							this.showConfirm = false;
 							// 删除成功后重新加载结果页，列表会自动更新
 							if (data.success > 0) {
+								sessionStorage.setItem('internal_nav', '1');
 								window.location.href = '/results';
 							} else {
 								this.deleteResult = data;

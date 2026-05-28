@@ -54,7 +54,7 @@ func setupTestFiles(t *testing.T) (dir1, dir2 string) {
 func TestScan_SingleDirectory(t *testing.T) {
 	dir1, _ := setupTestFiles(t)
 
-	groups, err := Scan([]string{dir1}, "md5", nil)
+	groups, err := Scan([]string{dir1}, "xxhash", nil)
 	if err != nil {
 		t.Fatalf("Scan 失败: %v", err)
 	}
@@ -81,7 +81,7 @@ func TestScan_SingleDirectory(t *testing.T) {
 func TestScan_MultipleDirectories(t *testing.T) {
 	dir1, dir2 := setupTestFiles(t)
 
-	groups, err := Scan([]string{dir1, dir2}, "md5", nil)
+	groups, err := Scan([]string{dir1, dir2}, "xxhash", nil)
 	if err != nil {
 		t.Fatalf("Scan 失败: %v", err)
 	}
@@ -118,7 +118,7 @@ func TestScan_NoDuplicates(t *testing.T) {
 		}
 	}
 
-	groups, err := Scan([]string{dir}, "md5", nil)
+	groups, err := Scan([]string{dir}, "xxhash", nil)
 	if err != nil {
 		t.Fatalf("Scan 失败: %v", err)
 	}
@@ -131,7 +131,7 @@ func TestScan_NoDuplicates(t *testing.T) {
 func TestScan_EmptyDirectory(t *testing.T) {
 	dir := t.TempDir()
 
-	groups, err := Scan([]string{dir}, "md5", nil)
+	groups, err := Scan([]string{dir}, "xxhash", nil)
 	if err != nil {
 		t.Fatalf("Scan 失败: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestScan_ProgressCallback(t *testing.T) {
 		progressCalls.Add(1)
 	}
 
-	_, err := Scan([]string{dir1}, "md5", onProgress)
+	_, err := Scan([]string{dir1}, "xxhash", onProgress)
 	if err != nil {
 		t.Fatalf("Scan 失败: %v", err)
 	}
@@ -161,7 +161,7 @@ func TestScan_ProgressCallback(t *testing.T) {
 }
 
 func TestScan_InvalidDirectory(t *testing.T) {
-	_, err := Scan([]string{"/nonexistent/path"}, "md5", nil)
+	_, err := Scan([]string{"/nonexistent/path"}, "xxhash", nil)
 	if err == nil {
 		t.Error("期望返回错误，但得到了 nil")
 	}
@@ -184,7 +184,7 @@ func TestScan_SubDirectories(t *testing.T) {
 		t.Fatalf("创建文件失败: %v", err)
 	}
 
-	groups, err := Scan([]string{dir}, "md5", nil)
+	groups, err := Scan([]string{dir}, "xxhash", nil)
 	if err != nil {
 		t.Fatalf("Scan 失败: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestScan_SubDirectories(t *testing.T) {
 func TestScan_FileInfoIntegrity(t *testing.T) {
 	dir1, _ := setupTestFiles(t)
 
-	groups, err := Scan([]string{dir1}, "md5", nil)
+	groups, err := Scan([]string{dir1}, "xxhash", nil)
 	if err != nil {
 		t.Fatalf("Scan 失败: %v", err)
 	}
@@ -230,7 +230,7 @@ func TestScan_FileInfoIntegrity(t *testing.T) {
 func TestScan_DifferentAlgorithms(t *testing.T) {
 	dir1, _ := setupTestFiles(t)
 
-	for _, algo := range []string{"md5", "sha1", "sha256", "sha512"} {
+	for _, algo := range []string{"xxhash", "sha256", "sha512"} {
 		t.Run(algo, func(t *testing.T) {
 			groups, err := Scan([]string{dir1}, algo, nil)
 			if err != nil {

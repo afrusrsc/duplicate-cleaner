@@ -12,6 +12,7 @@ license that can be found in the LICENSE file.
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -36,10 +37,15 @@ type ScanState struct {
 	total    int
 	groups   []model.DuplicateGroup
 	config   model.Config
+	cancel   context.CancelFunc // 取消扫描
 }
 
 // Store 全局扫描状态存储。
 var Store = &ScanState{}
+
+// ShutdownCh 关闭信号通道，由 main.go 监听。
+var ShutdownCh = make(chan struct{})
+var shutdownOnce sync.Once
 
 // Reset 重置扫描状态。
 func (s *ScanState) Reset() {
@@ -51,6 +57,7 @@ func (s *ScanState) Reset() {
 	s.current = 0
 	s.total = 0
 	s.groups = nil
+	s.cancel = nil
 }
 
 // SetDone 标记扫描完成。
@@ -201,9 +208,14 @@ func HandleScanRequest(w http.ResponseWriter, r *http.Request) {
 	}
 	Store.mu.Unlock()
 
-	// 异步执行扫描
+	// 带取消功能的扫描
+	Store.mu.Lock()
+	ctx, ctxCancel := context.WithCancel(context.Background())
+	Store.cancel = ctxCancel
+	Store.mu.Unlock()
+
 	go func() {
-		groups, err := scanner.Scan(req.Directories, req.Algorithm, func(current, total int, path string) {
+		groups, err := scanner.ScanWithContext(ctx, req.Directories, req.Algorithm, func(current, total int, path string) {
 			Store.SetProgress(current, total)
 		})
 		Store.SetDone(groups, err)
@@ -299,6 +311,27 @@ func HandleDelete(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// HandleCancel 取消正在进行的扫描。
+func HandleCancel(w http.ResponseWriter, r *http.Request) {
+	Store.mu.RLock()
+	cancel := Store.cancel
+	Store.mu.RUnlock()
+	if cancel != nil {
+		cancel()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+}
+
+// HandleShutdown 接收页面关闭通知，触发服务器退出。
+func HandleShutdown(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "shutting down"})
+	shutdownOnce.Do(func() {
+		close(ShutdownCh)
+	})
+}
+
 // NewRouter 创建并配置 HTTP 路由。
 func NewRouter() http.Handler {
 	mux := http.NewServeMux()
@@ -312,6 +345,8 @@ func NewRouter() http.Handler {
 	mux.HandleFunc("/api/progress", HandleProgress)
 	mux.HandleFunc("/api/delete", HandleDelete)
 	mux.HandleFunc("/api/browse", HandleBrowse)
+	mux.HandleFunc("/api/shutdown", HandleShutdown)
+	mux.HandleFunc("/api/cancel", HandleCancel)
 
 	return mux
 }

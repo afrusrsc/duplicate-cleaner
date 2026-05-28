@@ -11,13 +11,16 @@ license that can be found in the LICENSE file.
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"runtime"
+	"syscall"
 	"time"
 
 	"duplicate-cleaner/internal/hasher"
@@ -38,8 +41,8 @@ func main() {
 
 	flag.Var(&dirs, "d", "要扫描的目录路径（可重复使用，例如 -d /path1 -d /path2）")
 	flag.Var(&dirs, "dir", "要扫描的目录路径（可重复使用）")
-	flag.StringVar(&algo, "a", "md5", "哈希算法: md5|sha1|sha256|sha512")
-	flag.StringVar(&algo, "algorithm", "md5", "哈希算法: md5|sha1|sha256|sha512")
+	flag.StringVar(&algo, "a", "xxhash", "哈希算法: xxhash|sha256|sha512")
+	flag.StringVar(&algo, "algorithm", "xxhash", "哈希算法: xxhash|sha256|sha512")
 	flag.BoolVar(&tuiMode, "t", false, "使用 TUI 终端界面")
 	flag.BoolVar(&tuiMode, "tui", false, "使用 TUI 终端界面")
 	flag.BoolVar(&directDelete, "direct-delete", false, "直接删除（不放入回收站）")
@@ -56,6 +59,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  duplicate-cleaner -t                     # 启动 TUI 界面\n")
 		fmt.Fprintf(os.Stderr, "  duplicate-cleaner -d /path1 -d /path2    # 指定多个扫描目录\n")
 		fmt.Fprintf(os.Stderr, "  duplicate-cleaner -a sha256              # 使用 SHA-256 算法\n")
+		fmt.Fprintf(os.Stderr, "  duplicate-cleaner -a xxhash              # 使用 XXHash 算法\n")
 		fmt.Fprintf(os.Stderr, "  duplicate-cleaner --direct-delete        # 直接删除模式\n")
 	}
 
@@ -63,7 +67,7 @@ func main() {
 
 	// 验证哈希算法
 	if !hasher.ValidAlgorithm(algo) {
-		fmt.Fprintf(os.Stderr, "错误: 不支持的哈希算法 %q（可选: md5, sha1, sha256, sha512）\n", algo)
+		fmt.Fprintf(os.Stderr, "错误: 不支持的哈希算法 %q（可选: xxhash, sha256, sha512）\n", algo)
 		os.Exit(1)
 	}
 
@@ -108,7 +112,37 @@ func main() {
 			openBrowser(url)
 		}()
 
-		log.Fatal(http.ListenAndServe(addr, router))
+		server := &http.Server{
+			Addr:    addr,
+			Handler: router,
+		}
+
+		// 监听退出信号
+		quit := make(chan os.Signal, 1)
+		signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+
+		// 启动服务器
+		go func() {
+			if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Fatalf("服务启动失败: %v", err)
+			}
+		}()
+
+		// 等待退出信号
+		select {
+		case <-quit:
+			fmt.Println("\n收到退出信号...")
+		case <-handlers.ShutdownCh:
+			fmt.Println("\n页面已关闭，退出...")
+		}
+
+		// 优雅关闭
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := server.Shutdown(ctx); err != nil {
+			log.Fatalf("服务关闭失败: %v", err)
+		}
+		fmt.Println("服务已停止")
 	}
 }
 

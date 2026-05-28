@@ -12,6 +12,7 @@ license that can be found in the LICENSE file.
 package scanner
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -28,7 +29,14 @@ import (
 type ProgressFunc func(current int, total int, path string)
 
 // Scan 扫描多个目录，并发计算文件哈希，返回重复文件分组。
+// ctx 为 nil 时使用 context.Background()。
 func Scan(directories []string, algorithm string, onProgress ProgressFunc) ([]model.DuplicateGroup, error) {
+	ctx := context.Background()
+	return ScanWithContext(ctx, directories, algorithm, onProgress)
+}
+
+// ScanWithContext 带 context 的扫描，支持取消。
+func ScanWithContext(ctx context.Context, directories []string, algorithm string, onProgress ProgressFunc) ([]model.DuplicateGroup, error) {
 	// 第一阶段：收集所有文件路径
 	var allPaths []string
 	for _, dir := range directories {
@@ -43,8 +51,15 @@ func Scan(directories []string, algorithm string, onProgress ProgressFunc) ([]mo
 		return nil, nil
 	}
 
-	// 第二阶段：并发计算哈希
-	fileMap := concurrentHash(allPaths, algorithm, onProgress)
+	// 第二阶段：并发计算哈希（支持取消）
+	fileMap := concurrentHash(ctx, allPaths, algorithm, onProgress)
+
+	// 如果被取消，返回空结果而不是不全的数据
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
 
 	// 第三阶段：筛选重复组
 	return filterDuplicateGroups(fileMap), nil
@@ -69,7 +84,7 @@ func collectFilePaths(dir string) ([]string, error) {
 }
 
 // concurrentHash 并发计算文件哈希，按哈希值分组存储。
-func concurrentHash(paths []string, algorithm string, onProgress ProgressFunc) map[string][]model.FileInfo {
+func concurrentHash(ctx context.Context, paths []string, algorithm string, onProgress ProgressFunc) map[string][]model.FileInfo {
 	fileMap := make(map[string][]model.FileInfo)
 	var mu sync.Mutex
 
@@ -99,6 +114,16 @@ func concurrentHash(paths []string, algorithm string, onProgress ProgressFunc) m
 		go func() {
 			defer wg.Done()
 			for path := range pathCh {
+				// 检查是否被取消
+				select {
+				case <-ctx.Done():
+					// 清空剩余任务
+					for range pathCh {
+					}
+					return
+				default:
+				}
+
 				hash, err := hasher.HashFile(path, algorithm)
 				if err != nil {
 					continue // 跳过无法读取的文件

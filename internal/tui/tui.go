@@ -19,6 +19,8 @@ import (
 	"strconv"
 	"strings"
 
+	"context"
+
 	"duplicate-cleaner/internal/deleter"
 	"duplicate-cleaner/internal/model"
 	"duplicate-cleaner/internal/scanner"
@@ -128,6 +130,7 @@ type MainModel struct {
 	progressTotal   int
 	progressPath    string
 	progressCh      chan scanProgressMsg
+	scanCancel      context.CancelFunc // 取消扫描
 
 	// 结果状态
 	groups     []model.DuplicateGroup
@@ -155,7 +158,7 @@ func NewMainModel(config model.Config) MainModel {
 		dirInput.SetValue(strings.Join(config.Directories, ","))
 	}
 
-	algoChoices := []string{"md5", "sha1", "sha256", "sha512"}
+	algoChoices := []string{"xxhash", "sha256", "sha512"}
 	algoIndex := 0
 	for i, a := range algoChoices {
 		if a == config.Algorithm {
@@ -307,10 +310,12 @@ func (m MainModel) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.config.Algorithm = m.algoChoices[m.algoIndex]
 			m.config.DirectDelete = m.directDelete
 
+			ctx, cancel := context.WithCancel(context.Background())
+			m.scanCancel = cancel
 			m.state = stateScanning
 			ch := make(chan scanProgressMsg, 64)
 			m.progressCh = ch
-			return m, m.startScanWithCh(ch)
+			return m, m.startScanWithCtx(ctx, ch)
 
 		case "tab":
 			m.algoIndex = (m.algoIndex + 1) % len(m.algoChoices)
@@ -433,8 +438,10 @@ func (m MainModel) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 
 		case " ":
-			// 切换当前目录的选中状态
-			path := m.browsePath
+			if len(m.browseDirs) == 0 {
+				return m, nil
+			}
+			path := filepath.Join(m.browsePath, m.browseDirs[m.browseCursor].Name)
 			for i, d := range m.directories {
 				if d == path {
 					m.directories = append(m.directories[:i], m.directories[i+1:]...)
@@ -457,6 +464,16 @@ func (m MainModel) updateBrowse(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m MainModel) updateScanning(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.KeyMsg:
+		switch msg.String() {
+		case "q", "ctrl+c":
+			if m.scanCancel != nil {
+				m.scanCancel()
+			}
+			return m, nil
+		}
+	}
 	return m, nil
 }
 
@@ -601,11 +618,11 @@ func (m MainModel) filePathAtIndex(idx int) string {
 	return ""
 }
 
-// startScanWithCh 启动扫描命令
-func (m MainModel) startScanWithCh(ch chan scanProgressMsg) tea.Cmd {
+// startScanWithCtx 启动带 context 的扫描命令。
+func (m MainModel) startScanWithCtx(ctx context.Context, ch chan scanProgressMsg) tea.Cmd {
 	return tea.Batch(
 		func() tea.Msg {
-			groups, err := scanner.Scan(m.config.Directories, m.config.Algorithm, func(current, total int, path string) {
+			groups, err := scanner.ScanWithContext(ctx, m.config.Directories, m.config.Algorithm, func(current, total int, path string) {
 				ch <- scanProgressMsg{current: current, total: total, path: path}
 			})
 			close(ch)
@@ -812,7 +829,7 @@ func (m MainModel) viewBrowse() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("↑/↓: 导航 | Enter: 进入 | Space: 添加/移除当前目录 | Backspace: 上级 | Esc/B: 返回输入"))
+	b.WriteString(helpStyle.Render("↑/↓: 导航 | Enter: 进入 | Space: 添加/移除选中目录 | Backspace: 上级 | Esc/B: 返回输入"))
 	return b.String()
 }
 
@@ -855,7 +872,7 @@ func (m MainModel) viewScanning() string {
 	}
 
 	b.WriteString("\n")
-	b.WriteString(helpStyle.Render("Ctrl+C: 取消"))
+	b.WriteString(helpStyle.Render("q/Ctrl+C: 取消"))
 	return b.String()
 }
 

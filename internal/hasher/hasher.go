@@ -8,12 +8,10 @@ license that can be found in the LICENSE file.
 此源码的使用受 MIT 开源协议约束，详见 LICENSE 文件。
 */
 
-// Package hasher 提供文件哈希计算功能，支持 md5、sha1、sha256、sha512。
+// Package hasher 提供文件哈希计算功能，支持 xxhash、sha256、sha512。
 package hasher
 
 import (
-	"crypto/md5"
-	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"encoding/hex"
@@ -21,12 +19,14 @@ import (
 	"hash"
 	"io"
 	"os"
+
+	xxhash "github.com/cespare/xxhash/v2"
 )
 
 // ValidAlgorithm 检查算法名称是否受支持。
 func ValidAlgorithm(algo string) bool {
 	switch algo {
-	case "md5", "sha1", "sha256", "sha512":
+	case "xxhash", "sha256", "sha512":
 		return true
 	default:
 		return false
@@ -36,16 +36,14 @@ func ValidAlgorithm(algo string) bool {
 // newHasher 根据算法名称创建对应的 hash.Hash 实例。
 func newHasher(algo string) (hash.Hash, error) {
 	switch algo {
-	case "md5":
-		return md5.New(), nil
-	case "sha1":
-		return sha1.New(), nil
+	case "xxhash":
+		return xxhash.New(), nil
 	case "sha256":
 		return sha256.New(), nil
 	case "sha512":
 		return sha512.New(), nil
 	default:
-		return nil, fmt.Errorf("不支持的哈希算法: %s（可选: md5, sha1, sha256, sha512）", algo)
+		return nil, fmt.Errorf("不支持的哈希算法: %s（可选: xxhash, sha256, sha512）", algo)
 	}
 }
 

@@ -27,7 +27,7 @@ type DuplicateGroup struct {
 // Config 是应用程序的配置参数。
 type Config struct {
 	Directories  []string // 要扫描的目录路径列表
-	Algorithm    string   // 哈希算法: md5, sha1, sha256, sha512
+	Algorithm    string   // 哈希算法: xxhash, sha256, sha512
 	DirectDelete bool     // true=直接删除, false=删除到回收站
 	Port         int      // Web 服务端口
 }

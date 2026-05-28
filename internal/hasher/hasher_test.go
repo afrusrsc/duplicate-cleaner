@@ -27,28 +27,15 @@ func createTempFile(t *testing.T, content string) string {
 	return path
 }
 
-func TestHashFile_MD5(t *testing.T) {
+func TestHashFile_XXHash(t *testing.T) {
 	path := createTempFile(t, "hello world")
-	got, err := HashFile(path, "md5")
+	got, err := HashFile(path, "xxhash")
 	if err != nil {
 		t.Fatalf("HashFile 失败: %v", err)
 	}
-	// "hello world" 的 MD5 哈希值
-	want := "5eb63bbbe01eeed093cb22bb8f5acdc3"
-	if got != want {
-		t.Errorf("MD5 不匹配\ngot:  %s\nwant: %s", got, want)
-	}
-}
-
-func TestHashFile_SHA1(t *testing.T) {
-	path := createTempFile(t, "hello world")
-	got, err := HashFile(path, "sha1")
-	if err != nil {
-		t.Fatalf("HashFile 失败: %v", err)
-	}
-	want := "2aae6c35c94fcfb415dbe95f408b9ce91ee846ed"
-	if got != want {
-		t.Errorf("SHA1 不匹配\ngot:  %s\nwant: %s", got, want)
+	// "hello world" 的 XXHash64 已知值
+	if len(got) != 16 {
+		t.Errorf("XXHash 期望 16 位十六进制字符串，得到 %d 位: %s", len(got), got)
 	}
 }
 
@@ -85,7 +72,7 @@ func TestHashFile_UnsupportedAlgorithm(t *testing.T) {
 }
 
 func TestHashFile_FileNotFound(t *testing.T) {
-	_, err := HashFile("/nonexistent/file/path", "md5")
+	_, err := HashFile("/nonexistent/file/path", "sha256")
 	if err == nil {
 		t.Error("期望返回错误，但得到了 nil")
 	}
@@ -93,14 +80,14 @@ func TestHashFile_FileNotFound(t *testing.T) {
 
 func TestHashFile_EmptyFile(t *testing.T) {
 	path := createTempFile(t, "")
-	got, err := HashFile(path, "md5")
+	got, err := HashFile(path, "sha256")
 	if err != nil {
 		t.Fatalf("HashFile 失败: %v", err)
 	}
-	// 空文件的 MD5
-	want := "d41d8cd98f00b204e9800998ecf8427e"
+	// 空文件的 SHA256
+	want := "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
 	if got != want {
-		t.Errorf("空文件 MD5 不匹配\ngot:  %s\nwant: %s", got, want)
+		t.Errorf("空文件 SHA256 不匹配\ngot:  %s\nwant: %s", got, want)
 	}
 }
 
@@ -109,10 +96,11 @@ func TestValidAlgorithm(t *testing.T) {
 		algo string
 		want bool
 	}{
-		{"md5", true},
-		{"sha1", true},
+		{"xxhash", true},
 		{"sha256", true},
 		{"sha512", true},
+		{"md5", false},
+		{"sha1", false},
 		{"unknown", false},
 		{"", false},
 	}

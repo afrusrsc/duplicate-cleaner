@@ -107,7 +107,7 @@ templ Index() {
 			<div class="bg-white rounded-lg shadow-sm p-6 border border-gray-200">
 				<h2 class="text-lg font-semibold text-gray-800 mb-4">⚙️ 哈希算法</h2>
 				<div class="flex flex-wrap gap-3">
-					<template x-for="algo in ['md5', 'sha1', 'sha256', 'sha512']" :key="algo">
+					<template x-for="algo in ['xxhash', 'sha256', 'sha512']" :key="algo">
 						<label class="flex items-center gap-2 cursor-pointer">
 							<input
 								type="radio"
@@ -116,7 +116,7 @@ templ Index() {
 								:value="algo"
 								class="text-purple-600 focus:ring-purple-500"
 							/>
-							<span class="text-sm text-gray-700" x-text="algo.toUpperCase()"></span>
+							<span class="text-sm text-gray-700" x-text="algo === 'xxhash' ? 'XXHash' : algo.toUpperCase()"></span>
 						</label>
 					</template>
 				</div>
@@ -154,12 +154,18 @@ templ Index() {
 					<span class="text-sm text-gray-600">正在计算文件哈希值...</span>
 					<span class="text-sm text-gray-600" x-text="progressText"></span>
 				</div>
-				<div class="w-full bg-gray-200 rounded-full h-2.5">
+				<div class="w-full bg-gray-200 rounded-full h-2.5 mb-3">
 					<div
 						class="bg-purple-600 h-2.5 rounded-full transition-all duration-300"
 						:style="'width: ' + progressPercent + '%'"
 					></div>
 				</div>
+				<button
+					@click="cancelScan()"
+					class="w-full py-2 px-4 rounded-lg font-medium text-white bg-red-500 hover:bg-red-600 transition-colors"
+				>
+					⏹ 取消扫描
+				</button>
 			</div>
 
 			<!-- 错误提示 -->
@@ -172,7 +178,7 @@ templ Index() {
 			function scanForm() {
 				return {
 					directories: [],
-					algorithm: 'md5',
+					algorithm: 'xxhash',
 					directDelete: false,
 					scanning: false,
 					progressText: '',
@@ -279,7 +285,18 @@ templ Index() {
 						}
 					},
 
-					async pollProgress() {
+					async cancelScan() {
+					try {
+						await fetch('/api/cancel');
+					} catch (e) {
+						// 忽略
+					}
+					clearInterval(this.progressTimer);
+					this.scanning = false;
+					this.error = '扫描已取消';
+				},
+
+				async pollProgress() {
 						const poll = async () => {
 							try {
 								const resp = await fetch('/api/progress');
@@ -292,10 +309,11 @@ templ Index() {
 
 								if (data.done) {
 									clearInterval(this.progressTimer);
-									if (data.error) {
+									if (data.error && data.error !== 'context canceled') {
 										this.error = data.error;
 										this.scanning = false;
 									} else {
+										sessionStorage.setItem('internal_nav', '1');
 										window.location.href = '/results';
 									}
 									return;

@@ -27,6 +27,28 @@ templ Layout(title string) {
 			<main class="max-w-6xl mx-auto px-4 py-6">
 				{ children... }
 			</main>
+			<script>
+				// 清除内部导航标记（只有新页面加载时才会执行到这里）
+				sessionStorage.removeItem('internal_nav');
+
+				// 所有内部链接点击时设置标记，防止触发 shutdown
+				document.addEventListener('click', function(e) {
+					var a = e.target.closest('a[href]');
+					if (a) {
+						try {
+							if (new URL(a.href, location.href).origin === location.origin) {
+								sessionStorage.setItem('internal_nav', '1');
+							}
+						} catch (_) {}
+					}
+				});
+
+				window.addEventListener('beforeunload', () => {
+					if (sessionStorage.getItem('internal_nav') !== '1') {
+						navigator.sendBeacon('/api/shutdown');
+					}
+				});
+			</script>
 		</body>
 	</html>
 }
