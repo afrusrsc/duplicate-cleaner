@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -28,8 +27,21 @@ import (
 // current: 已处理文件数; total: 总文件数; path: 当前处理的文件路径。
 type ProgressFunc func(current int, total int, path string)
 
+const (
+	// sampleThreshold 采样哈希阈值：文件大小超过此值使用采样哈希。
+	sampleThreshold = 4 * 1024 * 1024 // 4MB
+)
+
+// fileEntry 文件条目：路径和大小。
+type fileEntry struct {
+	path string
+	size int64
+}
+
+// hashFunc 计算文件哈希的函数类型。
+type hashFunc func(entry fileEntry) (string, error)
+
 // Scan 扫描多个目录，并发计算文件哈希，返回重复文件分组。
-// ctx 为 nil 时使用 context.Background()。
 func Scan(directories []string, algorithm string, onProgress ProgressFunc) ([]model.DuplicateGroup, error) {
 	ctx := context.Background()
 	return ScanWithContext(ctx, directories, algorithm, onProgress)
@@ -37,58 +49,130 @@ func Scan(directories []string, algorithm string, onProgress ProgressFunc) ([]mo
 
 // ScanWithContext 带 context 的扫描，支持取消。
 func ScanWithContext(ctx context.Context, directories []string, algorithm string, onProgress ProgressFunc) ([]model.DuplicateGroup, error) {
-	// 第一阶段：收集所有文件路径
-	var allPaths []string
+	// 第一阶段：收集所有文件路径和大小
+	var allFiles []fileEntry
 	for _, dir := range directories {
-		paths, err := collectFilePaths(dir)
+		entries, err := collectFileEntries(dir)
 		if err != nil {
 			return nil, fmt.Errorf("扫描目录 %s 失败: %w", dir, err)
 		}
-		allPaths = append(allPaths, paths...)
+		allFiles = append(allFiles, entries...)
 	}
 
-	if len(allPaths) == 0 {
+	if len(allFiles) == 0 {
 		return nil, nil
 	}
 
-	// 第二阶段：并发计算哈希（支持取消）
-	fileMap := concurrentHash(ctx, allPaths, algorithm, onProgress)
-
-	// 如果被取消，返回空结果而不是不全的数据
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
+	// 分离小文件和大文件
+	var smallFiles []fileEntry
+	var largeFiles []fileEntry
+	for _, f := range allFiles {
+		if f.size < sampleThreshold {
+			smallFiles = append(smallFiles, f)
+		} else {
+			largeFiles = append(largeFiles, f)
+		}
 	}
 
-	// 第三阶段：筛选重复组
-	return filterDuplicateGroups(fileMap), nil
+	totalCount := len(allFiles)
+	finalMap := make(map[string][]model.FileInfo)
+	var mu sync.Mutex
+
+	var processed int
+	var progressMu sync.Mutex
+	reportProgress := func(path string) {
+		if onProgress != nil {
+			progressMu.Lock()
+			processed++
+			current := processed
+			progressMu.Unlock()
+			onProgress(current, totalCount, path)
+		}
+	}
+
+	// 处理小文件：直接全量哈希
+	if len(smallFiles) > 0 {
+		smallMap := hashFiles(ctx, smallFiles, algorithm, reportProgress,
+			func(entry fileEntry) (string, error) {
+				return hasher.HashFile(entry.path, algorithm)
+			})
+		mu.Lock()
+		for hash, files := range smallMap {
+			finalMap[hash] = append(finalMap[hash], files...)
+		}
+		mu.Unlock()
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+	}
+
+	// 处理大文件：先采样哈希（每个大文件计 1 次进度）
+	if len(largeFiles) > 0 {
+		sampleMap := hashFiles(ctx, largeFiles, algorithm, reportProgress,
+			func(entry fileEntry) (string, error) {
+				return hasher.SampleHashFile(entry.path, algorithm, entry.size)
+			})
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+
+		// 对采样匹配的组（≥2 个文件）进行全量哈希验证
+		for _, files := range sampleMap {
+			if len(files) < 2 {
+				continue
+			}
+
+			var verifyEntries []fileEntry
+			for _, fi := range files {
+				verifyEntries = append(verifyEntries, fileEntry{path: fi.Path, size: fi.Size})
+			}
+
+			verifyMap := hashFiles(ctx, verifyEntries, algorithm, nil,
+				func(entry fileEntry) (string, error) {
+					return hasher.HashFile(entry.path, algorithm)
+				})
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+
+			mu.Lock()
+			for hash, vfiles := range verifyMap {
+				finalMap[hash] = append(finalMap[hash], vfiles...)
+			}
+			mu.Unlock()
+		}
+	}
+
+	return filterDuplicateGroups(finalMap), nil
 }
 
-// collectFilePaths 递归收集目录下所有普通文件的路径。
-func collectFilePaths(dir string) ([]string, error) {
-	var paths []string
+// collectFileEntries 递归收集目录下所有普通文件的路径和大小。
+func collectFileEntries(dir string) ([]fileEntry, error) {
+	var entries []fileEntry
 
-	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(dir, func(fpath string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		// 只收集普通文件，跳过目录和符号链接
 		if d.Type().IsRegular() {
-			paths = append(paths, path)
+			info, err := d.Info()
+			if err != nil {
+				return err
+			}
+			entries = append(entries, fileEntry{path: fpath, size: info.Size()})
 		}
 		return nil
 	})
 
-	return paths, err
+	return entries, err
 }
 
-// concurrentHash 并发计算文件哈希，按哈希值分组存储。
-func concurrentHash(ctx context.Context, paths []string, algorithm string, onProgress ProgressFunc) map[string][]model.FileInfo {
+// hashFiles 并发计算文件哈希，按哈希值分组存储。
+func hashFiles(ctx context.Context, files []fileEntry, algorithm string, onProgress func(path string), fn hashFunc) map[string][]model.FileInfo {
 	fileMap := make(map[string][]model.FileInfo)
 	var mu sync.Mutex
 
-	total := len(paths)
+	total := len(files)
 	numWorkers := runtime.NumCPU()
 	if numWorkers > total {
 		numWorkers = total
@@ -97,66 +181,70 @@ func concurrentHash(ctx context.Context, paths []string, algorithm string, onPro
 		numWorkers = 1
 	}
 
-	// 使用通道分发任务
-	pathCh := make(chan string, total)
-	for _, p := range paths {
-		pathCh <- p
+	type task struct {
+		index int
+		entry fileEntry
 	}
-	close(pathCh)
+	taskCh := make(chan task, total)
+	for i, f := range files {
+		taskCh <- task{index: i, entry: f}
+	}
+	close(taskCh)
 
-	// 进度计数器
-	var processed int
-	var progressMu sync.Mutex
+	type result struct {
+		hash string
+		fi   model.FileInfo
+		ok   bool
+	}
+	results := make([]result, total)
 
 	var wg sync.WaitGroup
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			for path := range pathCh {
-				// 检查是否被取消
+			for t := range taskCh {
 				select {
 				case <-ctx.Done():
-					// 清空剩余任务
-					for range pathCh {
+					for range taskCh {
 					}
 					return
 				default:
 				}
 
-				hash, err := hasher.HashFile(path, algorithm)
+				hash, err := fn(t.entry)
 				if err != nil {
-					continue // 跳过无法读取的文件
+					results[t.index] = result{ok: false}
+				} else {
+					results[t.index] = result{
+						hash: hash,
+						fi: model.FileInfo{
+							Path: t.entry.path,
+							Size: t.entry.size,
+							Hash: hash,
+						},
+						ok: true,
+					}
 				}
 
-				info, err := os.Stat(path)
-				if err != nil {
-					continue
-				}
-
-				fi := model.FileInfo{
-					Path: path,
-					Size: info.Size(),
-					Hash: hash,
-				}
-
-				mu.Lock()
-				fileMap[hash] = append(fileMap[hash], fi)
-				mu.Unlock()
-
-				// 调用进度回调
 				if onProgress != nil {
-					progressMu.Lock()
-					processed++
-					current := processed
-					progressMu.Unlock()
-					onProgress(current, total, path)
+					onProgress(t.entry.path)
 				}
 			}
 		}()
 	}
 
 	wg.Wait()
+
+	for i := 0; i < total; i++ {
+		if results[i].ok {
+			r := results[i]
+			mu.Lock()
+			fileMap[r.hash] = append(fileMap[r.hash], r.fi)
+			mu.Unlock()
+		}
+	}
+
 	return fileMap
 }
 

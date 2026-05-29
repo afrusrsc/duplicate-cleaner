@@ -91,6 +91,59 @@ func TestHashFile_EmptyFile(t *testing.T) {
 	}
 }
 
+func TestSampleHashFile_LargeFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "large.bin")
+
+	// 创建 5MB 文件，每 1MB 位置填充不同字节
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("创建文件失败: %v", err)
+	}
+	pattern := make([]byte, 4096)
+	for i := range pattern {
+		pattern[i] = byte(i % 256)
+	}
+	for i := 0; i < 5*1024*1024/len(pattern); i++ {
+		f.Write(pattern)
+	}
+	f.Close()
+
+	hash, err := SampleHashFile(path, "xxhash", 5*1024*1024)
+	if err != nil {
+		t.Fatalf("SampleHashFile 失败: %v", err)
+	}
+	if len(hash) != 16 {
+		t.Errorf("XXHash 期望 16 位十六进制，得到 %d 位", len(hash))
+	}
+
+	// 同一文件的采样哈希应相同
+	hash2, err := SampleHashFile(path, "xxhash", 5*1024*1024)
+	if err != nil {
+		t.Fatalf("SampleHashFile 失败: %v", err)
+	}
+	if hash != hash2 {
+		t.Error("同一文件两次采样哈希应相同")
+	}
+}
+
+func TestSampleHashFile_SmallFile(t *testing.T) {
+	path := createTempFile(t, "hello world")
+
+	// 小于 4KB 的文件，采样哈希应等于全量哈希
+	sampleHash, err := SampleHashFile(path, "xxhash", int64(len("hello world")))
+	if err != nil {
+		t.Fatalf("SampleHashFile 失败: %v", err)
+	}
+	fullHash, err := HashFile(path, "xxhash")
+	if err != nil {
+		t.Fatalf("HashFile 失败: %v", err)
+	}
+	if sampleHash != fullHash {
+		t.Errorf("小文件采样哈希应等于全量哈希\nsample: %s\nfull:   %s", sampleHash, fullHash)
+	}
+}
+
 func TestValidAlgorithm(t *testing.T) {
 	tests := []struct {
 		algo string

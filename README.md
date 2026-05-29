@@ -7,6 +7,7 @@
 - **多算法支持** — XXHash（默认）、SHA-256、SHA-512，XXHash 速度最快
 - **双界面模式** — Web 浏览器界面（默认）和 TUI 终端界面（`-t`）
 - **并行扫描** — 并发计算文件哈希，实时显示进度条，支持中途取消
+- **智能采样** — 小于 4MB 文件全量哈希，大于 4MB 先采样（5 个 4KB 块）后全量验证，提升大文件扫描速度
 - **结果分组** — 按哈希值分组列出重复文件，显示完整路径和文件大小
 - **安全删除** — 默认删除到回收站（跨平台），支持直接删除模式
 - **目录浏览** — Web 和 TUI 均支持目录浏览器选择目录（含软链接），也可手动输入路径
@@ -113,8 +114,8 @@ duplicate-cleaner/
 ├── main.go                          # 入口，命令行参数解析
 ├── internal/
 │   ├── model/model.go               # 数据模型定义
-│   ├── hasher/hasher.go             # 哈希计算（xxhash、sha256、sha512）
-│   ├── scanner/scanner.go           # 文件扫描与重复检测（支持 context 取消）
+│   ├── hasher/hasher.go             # 哈希计算（xxhash、sha256、sha512 + 采样哈希）
+│   ├── scanner/scanner.go           # 文件扫描与重复检测（两阶段采样优化，支持取消）
 │   ├── deleter/deleter.go           # 文件删除（跨平台回收站/直接删除）
 │   ├── tui/tui.go                   # TUI 终端界面
 │   └── web/
