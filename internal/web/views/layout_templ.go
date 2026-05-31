@@ -42,7 +42,7 @@ func Layout(title string) templ.Component {
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}
-		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><script src=\"https://cdn.tailwindcss.com\"></script><script src=\"https://unpkg.com/htmx.org@2.0.4\"></script><script defer src=\"https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js\"></script><style>\n\t\t\t\t/* 滚动条美化 */\n\t\t\t\t::-webkit-scrollbar { width: 6px; }\n\t\t\t\t::-webkit-scrollbar-track { background: #f1f5f9; }\n\t\t\t\t::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }\n\t\t\t</style></head><body class=\"bg-gray-50 min-h-screen\"><nav class=\"bg-white shadow-sm border-b border-gray-200\"><div class=\"max-w-6xl mx-auto px-4 py-3 flex items-center gap-2\"><span class=\"text-2xl\">🔍</span><h1 class=\"text-xl font-bold text-purple-700\">文件去重工具</h1></div></nav><main class=\"max-w-6xl mx-auto px-4 py-6\">")
+		templ_7745c5c3_Err = templruntime.WriteString(templ_7745c5c3_Buffer, 2, "</title><script src=\"/static/tailwind.js\"></script><script defer src=\"/static/alpine.min.js\"></script><style>\n\t\t\t\t/* 滚动条美化 */\n\t\t\t\t::-webkit-scrollbar { width: 6px; }\n\t\t\t\t::-webkit-scrollbar-track { background: #f1f5f9; }\n\t\t\t\t::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }\n\t\t\t</style></head><body class=\"bg-gray-50 min-h-screen\"><nav class=\"bg-white shadow-sm border-b border-gray-200\"><div class=\"max-w-6xl mx-auto px-4 py-3 flex items-center gap-2\"><span class=\"text-2xl\">🔍</span><h1 class=\"text-xl font-bold text-purple-700\">文件去重工具</h1></div></nav><main class=\"max-w-6xl mx-auto px-4 py-6\">")
 		if templ_7745c5c3_Err != nil {
 			return templ_7745c5c3_Err
 		}

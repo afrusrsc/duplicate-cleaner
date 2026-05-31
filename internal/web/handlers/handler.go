@@ -24,6 +24,7 @@ import (
 	"duplicate-cleaner/internal/deleter"
 	"duplicate-cleaner/internal/model"
 	"duplicate-cleaner/internal/scanner"
+	"duplicate-cleaner/internal/web/static"
 	"duplicate-cleaner/internal/web/views"
 )
 
@@ -335,6 +336,9 @@ func HandleShutdown(w http.ResponseWriter, r *http.Request) {
 // NewRouter 创建并配置 HTTP 路由。
 func NewRouter() http.Handler {
 	mux := http.NewServeMux()
+
+	// 静态文件路由（从嵌入资源提供，支持离线使用）
+	mux.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.FS(static.Assets))))
 
 	// 页面路由
 	mux.HandleFunc("/", HandleIndex)
